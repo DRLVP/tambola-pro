@@ -9,6 +9,8 @@ import { envConfig } from "./env.js";
 // Allowed origins based on environment
 const allowedOrigins = [
   envConfig.FRONTEND_URL,
+  "https://tambola-pro-admin.netlify.app",
+  "https://relaxed-jalebi-73aff6.netlify.app",
   "http://localhost:5173",
   "http://127.0.0.1:5173",         // IP variant
   "http://localhost:5174",
