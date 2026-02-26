@@ -16,6 +16,7 @@ import { connectDB } from "./config/db.js";
 
 // Routes
 import routes from "./routes/index.js";
+import healthRoutes from "./routes/health.routes.js";
 
 // Middleware
 import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.js";
@@ -31,15 +32,20 @@ const app = express();
 // Middleware Stack
 // ============================================
 
+// CORS — must be FIRST so preflight OPTIONS requests are handled before
+// any auth, body-parsing, or other middleware runs.
+app.use(cors(corsOptions));
+
+// Explicitly handle all preflight (OPTIONS) requests with CORS headers.
+// This is required for browsers that send a preflight before POST/PUT/PATCH.
+app.options("*", cors(corsOptions));
+
 // Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Logger
 app.use(requestLogger);
-
-// CORS
-app.use(cors(corsOptions));
 
 // Clerk authentication
 app.use(clerkMiddleware());
@@ -48,15 +54,19 @@ app.use(clerkMiddleware());
 // Routes
 // ============================================
 
-// Health check endpoint
-app.get("/", (req: Request, res: Response) => {
+// Root endpoint — quick info
+app.get("/", (_req: Request, res: Response) => {
   res.json({
     message: "Tambola Pro Backend API",
     status: "running",
     environment: envConfig.NODE_ENV,
     timestamp: new Date().toISOString(),
+    docs: "/health for health checks, /api for the API",
   });
 });
+
+// Health check routes (public, no auth) — use /health as Render's health check URL
+app.use("/health", healthRoutes);
 
 // API routes
 app.use("/api", routes);

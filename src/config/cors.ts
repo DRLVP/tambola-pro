@@ -6,26 +6,31 @@
 import { CorsOptions } from "cors";
 import { envConfig } from "./env.js";
 
-// Allowed origins based on environment
-const allowedOrigins = [
+// Production frontend URLs (Netlify deployments)
+// User app: https://relaxed-jalebi-73aff6.netlify.app
+// Admin app: https://tambola-pro-admin.netlify.app
+const allowedOrigins: string[] = [
   envConfig.FRONTEND_URL,
+  // --- Production (Netlify) ---
   "https://tambola-pro-admin.netlify.app",
+  "https://tambola-pro-admin.netlify.app/",
   "https://relaxed-jalebi-73aff6.netlify.app",
+  "https://relaxed-jalebi-73aff6.netlify.app/",
+  // --- Local development ---
   "http://localhost:5173",
-  "http://127.0.0.1:5173",         // IP variant
+  "http://127.0.0.1:5173",
   "http://localhost:5174",
-  "http://127.0.0.1:5174",         // IP variant
+  "http://127.0.0.1:5174",
   "http://localhost:3000",
   "http://localhost:3001",
-  // Add more origins for staging/production as needed
-];
+].filter(Boolean) as string[]; // remove any undefined/empty values
 
 /**
  * CORS configuration for Express middleware
  */
 export const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.) in development
+    // Allow requests with no origin (server-to-server, curl, mobile apps)
     if (!origin) {
       return callback(null, true);
     }
@@ -33,12 +38,17 @@ export const corsOptions: CorsOptions = {
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    console.log(`🚫 CORS Blocked: ${origin}. Allowed: ${allowedOrigins.join(", ")}`);
-    callback(new Error(`CORS not allowed for origin: ${origin}`));
+
+    // IMPORTANT: Return false (not an Error) so Express does NOT throw.
+    // Throwing here causes the error handler to respond WITHOUT CORS headers,
+    // which makes the browser report "No Access-Control-Allow-Origin".
+    console.warn(`🚫 CORS Blocked: ${origin}`);
+    return callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
+  optionsSuccessStatus: 204, // Some browsers (Safari) choke on 204 for preflight
 };
 
 /**
