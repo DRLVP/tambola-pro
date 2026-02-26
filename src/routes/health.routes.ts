@@ -42,11 +42,13 @@ function dbState(): string {
  * Use this as the "Health Check URL" in your Render service settings.
  */
 router.get("/", (_req: Request, res: Response): void => {
+  console.log("Health check hit");
   res.status(200).json({
     success: true,
     message: "Tambola Pro API is alive 🟢",
     timestamp: new Date().toISOString(),
   });
+  console.log("Health check hit");
 });
 
 // ─── GET /health/status ──────────────────────────────────────────────────────
