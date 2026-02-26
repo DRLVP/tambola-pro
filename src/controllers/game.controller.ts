@@ -154,11 +154,12 @@ export const updateGame = async (req: Request, res: Response) => {
 // DELETE /api/games/:id
 export const deleteGame = async (req: Request, res: Response) => {
   try {
-    const game = await Game.findByIdAndDelete(req.params.id);
+    const id = req.params.id as string;
+    const game = await Game.findByIdAndDelete(id);
     if (!game) return res.status(404).json({ success: false, message: "Game not found" });
 
     // Cleanup any running loops
-    GameLoopService.stop(req.params.id);
+    GameLoopService.stop(id);
 
     res.json({ success: true, data: null });
   } catch (error) {
@@ -222,14 +223,15 @@ export const startGame = async (req: Request, res: Response) => {
 // POST /api/games/:id/end
 export const endGame = async (req: Request, res: Response) => {
   try {
+    const id = req.params.id as string;
     const game = await Game.findByIdAndUpdate(
-      req.params.id,
+      id,
       { status: 'completed', endedAt: new Date() },
       { new: true }
     );
 
     // Stop Auto Play Loop
-    GameLoopService.stop(req.params.id);
+    GameLoopService.stop(id);
 
     if (game) getIO().to(game._id.toString()).emit('game:ended', { gameId: game._id });
     res.json({ success: true, data: game });
@@ -241,10 +243,11 @@ export const endGame = async (req: Request, res: Response) => {
 // POST /api/games/:id/pause
 export const pauseGame = async (req: Request, res: Response) => {
   try {
-    const game = await Game.findByIdAndUpdate(req.params.id, { status: 'paused' }, { new: true });
+    const id = req.params.id as string;
+    const game = await Game.findByIdAndUpdate(id, { status: 'paused' }, { new: true });
 
     // Stop Auto Play Loop
-    GameLoopService.stop(req.params.id);
+    GameLoopService.stop(id);
 
     res.json({ success: true, data: game });
   } catch (error) {
@@ -255,7 +258,8 @@ export const pauseGame = async (req: Request, res: Response) => {
 // POST /api/games/:id/resume
 export const resumeGame = async (req: Request, res: Response) => {
   try {
-    const game = await Game.findByIdAndUpdate(req.params.id, { status: 'active' }, { new: true });
+    const id = req.params.id as string;
+    const game = await Game.findByIdAndUpdate(id, { status: 'active' }, { new: true });
 
     // If it was on auto-play, you might want to restart it, or let user restart manually.
     // Generally safe to let user restart auto-play manually.
@@ -269,9 +273,10 @@ export const resumeGame = async (req: Request, res: Response) => {
 // POST /api/games/:id/auto-play
 export const startAutoPlay = async (req: Request, res: Response) => {
   try {
+    const id = req.params.id as string;
     const { interval } = req.body;
     const game = await Game.findByIdAndUpdate(
-      req.params.id,
+      id,
       { 'settings.autoPlay': true, 'settings.autoPlayInterval': interval },
       { new: true }
     );
@@ -288,14 +293,15 @@ export const startAutoPlay = async (req: Request, res: Response) => {
 // POST /api/games/:id/stop-auto-play
 export const stopAutoPlay = async (req: Request, res: Response) => {
   try {
+    const id = req.params.id as string;
     const game = await Game.findByIdAndUpdate(
-      req.params.id,
+      id,
       { 'settings.autoPlay': false },
       { new: true }
     );
 
     // Stop Service Loop
-    GameLoopService.stop(req.params.id);
+    GameLoopService.stop(id);
 
     res.json({ success: true, data: game });
   } catch (error) {
