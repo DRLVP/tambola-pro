@@ -38,7 +38,7 @@ app.use(cors(corsOptions));
 
 // Explicitly handle all preflight (OPTIONS) requests with CORS headers.
 // This is required for browsers that send a preflight before POST/PUT/PATCH.
-app.options("(.*)", cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Body parsers
 app.use(express.json());
