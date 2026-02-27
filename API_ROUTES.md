@@ -22,7 +22,6 @@ Base URL: `http://localhost:8080` (Development)
 | `POST` | `/api/games/:id/pause` | Pause a game | ✅ Yes (Admin) |
 | `POST` | `/api/games/:id/resume` | Resume a game | ✅ Yes (Admin) |
 | `POST` | `/api/games/:id/end` | End a game | ✅ Yes (Admin) |
-| `POST` | `/api/games/:id/manual-claim` | Manually process a win claim | ✅ Yes (Admin) |
 
 ## Tickets (`/api/tickets`)
 

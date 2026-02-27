@@ -221,8 +221,9 @@ export const startGame = async (req: Request, res: Response) => {
       }
     }
     res.json({ success: true, data: game });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Error starting game" });
+  } catch (error: any) {
+    console.error('[startGame] Error:', error);
+    res.status(500).json({ success: false, message: "Error starting game", error: error.message || String(error) });
   }
 };
 
