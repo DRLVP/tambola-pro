@@ -213,7 +213,13 @@ export const startGame = async (req: Request, res: Response) => {
       { status: 'active', startedAt: new Date() },
       { new: true }
     );
-    if (game) getIO().to(game._id.toString()).emit('game:started', { gameId: game._id });
+    if (game) {
+      try {
+        getIO().to(game._id.toString()).emit('game:started', { gameId: game._id });
+      } catch (socketError) {
+        console.warn('[startGame] Socket emit failed (no clients connected?):', socketError);
+      }
+    }
     res.json({ success: true, data: game });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error starting game" });
