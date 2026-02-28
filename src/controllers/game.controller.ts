@@ -214,19 +214,28 @@ export const startGame = async (req: Request, res: Response) => {
   try {
     const game = await Game.findByIdAndUpdate(
       req.params.id,
-      { status: 'active', startedAt: new Date() },
+      {
+        status: 'active',
+        startedAt: new Date(),
+        // Force Auto Play ON when game starts
+        'settings.autoPlay': true,
+        'settings.autoPlayInterval': 5000
+      },
       { new: true }
     );
+
     if (game) {
+      // 1. Safely emit the socket event
       try {
         getIO().to(game._id.toString()).emit('game:started', { gameId: game._id });
       } catch (socketError) {
         console.warn('[startGame] Socket emit failed (no clients connected?):', socketError);
       }
-      if (game.settings?.autoPlay) {
-        GameLoopService.start(game._id.toString(), game.settings.autoPlayInterval || 5000);
-      }
+
+      // 2. Start the auto-play loop immediately
+      GameLoopService.start(game._id.toString(), 5000);
     }
+
     res.json({ success: true, data: game });
   } catch (error: any) {
     console.error('[startGame] Error:', error);
@@ -263,6 +272,15 @@ export const pauseGame = async (req: Request, res: Response) => {
     // Stop Auto Play Loop
     GameLoopService.stop(id);
 
+    // Notify clients
+    if (game) {
+      try {
+        getIO().to(id).emit('game:paused', { gameId: id });
+      } catch (socketError) {
+        console.warn('[pauseGame] Socket emit failed:', socketError);
+      }
+    }
+
     res.json({ success: true, data: game });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error pausing game" });
@@ -275,8 +293,18 @@ export const resumeGame = async (req: Request, res: Response) => {
     const id = req.params.id as string;
     const game = await Game.findByIdAndUpdate(id, { status: 'active' }, { new: true });
 
-    if (game && game.settings?.autoPlay) {
-      GameLoopService.start(game._id.toString(), game.settings.autoPlayInterval || 5000);
+    if (game) {
+      // Notify clients
+      try {
+        getIO().to(id).emit('game:resumed', { gameId: id });
+      } catch (socketError) {
+        console.warn('[resumeGame] Socket emit failed:', socketError);
+      }
+
+      // Restart auto-play if enabled
+      if (game.settings?.autoPlay) {
+        GameLoopService.start(game._id.toString(), game.settings.autoPlayInterval || 5000);
+      }
     }
 
     res.json({ success: true, data: game });
@@ -324,8 +352,35 @@ export const stopAutoPlay = async (req: Request, res: Response) => {
   }
 };
 
-// GET /api/games/available
+// GET /api/games/available — returns games users can interact with (waiting = buy tickets, active = watch live)
 export const getAvailableGames = async (req: Request, res: Response) => {
-  req.query.status = 'active';
-  return getGames(req, res);
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const query = { status: { $in: ['waiting', 'active'] } };
+
+    const games = await Game.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit));
+
+    const total = await Game.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: games,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        totalPages: Math.ceil(total / Number(limit))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching available games" });
+  }
+};
+
+// GET /api/games/:id/results (alias for getGame — returns game with winners)
+export const getGameResults = async (req: Request, res: Response) => {
+  return getGame(req, res);
 };

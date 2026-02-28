@@ -94,6 +94,68 @@ export const getAllTickets: RequestHandler = async (req, res): Promise<void> => 
   }
 };
 
+// GET /api/tickets/pending (Admin)
+export const getPendingTickets: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const { gameId, page = 1, limit = 20 } = req.query;
+
+    const query: any = { status: 'pending' };
+    if (gameId) query.gameId = gameId;
+
+    const tickets = await Ticket.find(query)
+      .populate('gameId', 'name status ticketPrice')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+
+    const total = await Ticket.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: tickets,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        totalPages: Math.ceil(total / Number(limit))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching pending tickets" });
+  }
+};
+
+// GET /api/tickets/game/:gameId (Admin)
+export const getGameTickets: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const { gameId } = req.params;
+    const { page = 1, limit = 50, status } = req.query;
+
+    const query: any = { gameId };
+    if (status && status !== 'all') query.status = status;
+
+    const tickets = await Ticket.find(query)
+      .sort({ ticketNumber: 1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+
+    const total = await Ticket.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: tickets,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        totalPages: Math.ceil(total / Number(limit))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching game tickets" });
+  }
+};
+
 // POST /api/tickets/purchase
 export const purchaseTicket: RequestHandler = async (req, res): Promise<void> => {
   try {
