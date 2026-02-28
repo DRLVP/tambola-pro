@@ -180,22 +180,26 @@ export const callNumber = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "Number already called" });
     }
 
-    // 1. Update Game State
+    // 1. Mutate in memory
     game.calledNumbers.push(number);
-    await game.save();
 
-    // 2. Broadcast immediately
-    const io = getIO();
-    io.to(id).emit('game:number-called', { gameId: id, number });
-
-    // 3. Process Winners (Shared Logic)
+    // 2. Process Winners (Shared Logic)
     const { gameUpdatesRequired, winningUpdates } = await processGameWinners(game, number);
 
-    if (gameUpdatesRequired) {
-      await game.save();
-      winningUpdates.forEach(update => {
-        io.to(id).emit('game:winner-claimed', update);
-      });
+    // 3. Single save (includes calledNumbers + any winner updates)
+    await game.save();
+
+    // 4. Emit safely
+    try {
+      const io = getIO();
+      io.to(id).emit('game:number-called', { gameId: id, number });
+      if (gameUpdatesRequired) {
+        winningUpdates.forEach(update => {
+          io.to(id).emit('game:winner-claimed', update);
+        });
+      }
+    } catch (socketError) {
+      console.warn('[callNumber] Socket emit failed:', socketError);
     }
 
     res.json({ success: true, data: game });
@@ -218,6 +222,9 @@ export const startGame = async (req: Request, res: Response) => {
         getIO().to(game._id.toString()).emit('game:started', { gameId: game._id });
       } catch (socketError) {
         console.warn('[startGame] Socket emit failed (no clients connected?):', socketError);
+      }
+      if (game.settings?.autoPlay) {
+        GameLoopService.start(game._id.toString(), game.settings.autoPlayInterval || 5000);
       }
     }
     res.json({ success: true, data: game });
@@ -268,8 +275,9 @@ export const resumeGame = async (req: Request, res: Response) => {
     const id = req.params.id as string;
     const game = await Game.findByIdAndUpdate(id, { status: 'active' }, { new: true });
 
-    // If it was on auto-play, you might want to restart it, or let user restart manually.
-    // Generally safe to let user restart auto-play manually.
+    if (game && game.settings?.autoPlay) {
+      GameLoopService.start(game._id.toString(), game.settings.autoPlayInterval || 5000);
+    }
 
     res.json({ success: true, data: game });
   } catch (error) {

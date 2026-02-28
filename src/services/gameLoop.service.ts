@@ -46,24 +46,23 @@ export const GameLoopService = {
         const randomIndex = Math.floor(Math.random() * availableNumbers.length);
         const numberToCall = availableNumbers[randomIndex];
 
-        // 6. Call the number (Logic similar to controller)
+        // 1. Mutate in memory
         game.calledNumbers.push(numberToCall);
 
-        // --- COPIED WIN CHECK LOGIC (Refactor to shared function ideally) ---
-        // For brevity, we just save and emit here. 
-        // ideally you import 'processCall' from a shared service to DRY this up.
-        // ------------------------------------------------------------------
+        // 2. Trigger Auto-Win Check (returns winning updates)
+        const winningUpdates = await this.processWinners(game, numberToCall);
 
+        // 3. Save EVERYTHING at once
         await game.save();
 
-        // Emit to Frontend
-        getIO().to(gameId).emit('game:number-called', { gameId, number: numberToCall });
-
-        // Trigger Auto-Win Check (We call the logic from your existing flow)
-        // Since we can't easily import the controller function, 
-        // we'll quickly re-run the win check here or assume the controller logic is extracted.
-        // For now, let's just emit. Ideally, move the "Call Logic" to a shared service.
-        await this.processWinners(game, numberToCall);
+        // 4. Emit safely
+        try {
+          const io = getIO();
+          io.to(gameId).emit('game:number-called', { gameId, number: numberToCall });
+          winningUpdates.forEach(w => io.to(gameId).emit('game:winner-claimed', w));
+        } catch (emitError) {
+          console.warn('[GameLoop] Emit failed:', emitError);
+        }
 
       } catch (error) {
         console.error(`[GameLoop] Error in loop for ${gameId}:`, error);
@@ -80,11 +79,10 @@ export const GameLoopService = {
     }
   },
 
-  // Internal helper to process winners (Duplicate of controller logic)
+  // Internal helper to process winners — mutates game in memory, returns updates for emit
   async processWinners(game: any, number: number) {
     const tickets = await Ticket.find({ gameId: game._id, status: 'active' });
     const openRules = game.rules.filter((r: any) => !r.isCompleted);
-    let gameUpdates = false;
     const winningUpdates: any[] = [];
 
     for (const ticket of tickets) {
@@ -102,15 +100,12 @@ export const GameLoopService = {
             ticket.winnerInfo = { /*...*/ }; // Populate as needed
             ticket.status = 'won';
             winningUpdates.push({ gameId: game._id, prize: rule });
-            gameUpdates = true;
           }
         }
         await ticket.save();
       }
     }
-    if (gameUpdates) {
-      await game.save();
-      winningUpdates.forEach(w => getIO().to(game._id.toString()).emit('game:winner-claimed', w));
-    }
+
+    return winningUpdates;
   }
 };
