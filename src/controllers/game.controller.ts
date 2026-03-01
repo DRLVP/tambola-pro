@@ -134,6 +134,29 @@ export const createGame = async (req: Request, res: Response) => {
       calledNumbers: [],
       winners: []
     });
+
+    // Pre-generate all tickets for this game (1 to maxTickets)
+    const totalTickets = newGame.settings?.maxTickets || newGame.maxPlayers || 100;
+    const { generateTicketMatrix } = await import('../utils/tambolaGenerator.js');
+
+    const ticketsToCreate = [];
+    for (let i = 1; i <= totalTickets; i++) {
+      ticketsToCreate.push({
+        gameId: newGame._id,
+        ticketNumber: i,
+        numbers: generateTicketMatrix(),
+        markedNumbers: [],
+        status: 'available'
+      });
+    }
+
+    // Batch insert in chunks of 50 for performance
+    for (let i = 0; i < ticketsToCreate.length; i += 50) {
+      await Ticket.insertMany(ticketsToCreate.slice(i, i + 50));
+    }
+
+    console.log(`[GameSetup] Pre-generated ${totalTickets} tickets for game ${newGame._id}`);
+
     res.status(201).json({ success: true, data: newGame });
   } catch (error) {
     res.status(400).json({ success: false, message: "Error creating game", error });

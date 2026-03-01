@@ -156,15 +156,50 @@ export const getGameTickets: RequestHandler = async (req, res): Promise<void> =>
   }
 };
 
-// POST /api/tickets/purchase
+// GET /api/tickets/available/:gameId — returns unbooked tickets for a game (public)
+export const getAvailableTickets: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const { gameId } = req.params;
+
+    const game = await Game.findById(gameId);
+    if (!game) {
+      res.status(404).json({ success: false, message: "Game not found" });
+      return;
+    }
+
+    // Return tickets with status 'available' (no user assigned)
+    const tickets = await Ticket.find({ gameId, status: 'available' })
+      .select('ticketNumber status')
+      .sort({ ticketNumber: 1 });
+
+    // Also return booked ticket numbers so UI can show which are taken
+    const bookedTickets = await Ticket.find({
+      gameId,
+      status: { $in: ['pending', 'confirmed', 'active'] }
+    }).select('ticketNumber status userId');
+
+    res.json({
+      success: true,
+      data: {
+        available: tickets.map(t => t.ticketNumber),
+        booked: bookedTickets.map(t => t.ticketNumber),
+        total: game.settings?.maxTickets || game.maxPlayers || 100
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching available tickets" });
+  }
+};
+
+// POST /api/tickets/purchase — user selects specific ticket numbers
 export const purchaseTicket: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const { gameId, quantity } = req.body;
+    const { gameId, ticketNumbers } = req.body;
     const userId = req.auth().userId;
 
-    // 1. Basic Validation
-    if (!quantity || quantity < 1) {
-      res.status(400).json({ success: false, message: "Invalid ticket quantity" });
+    // 1. Validate input
+    if (!ticketNumbers || !Array.isArray(ticketNumbers) || ticketNumbers.length === 0) {
+      res.status(400).json({ success: false, message: "Please select at least one ticket" });
       return;
     }
 
@@ -184,77 +219,72 @@ export const purchaseTicket: RequestHandler = async (req, res): Promise<void> =>
     }
 
     // 3. User Ticket Limit Check
-    // We count 'active' and 'pending' tickets. Cancelled/Lost/Won don't restrict purchasing more (usually).
     const maxPerUser = game.settings?.maxTicketsPerUser || 6;
-
     const userTicketCount = await Ticket.countDocuments({
       gameId,
       userId,
-      status: { $in: ['active', 'pending'] }
+      status: { $in: ['pending', 'confirmed', 'active'] }
     });
 
-    if (userTicketCount + quantity > maxPerUser) {
+    if (userTicketCount + ticketNumbers.length > maxPerUser) {
       res.status(400).json({
         success: false,
-        message: `Purchase limit exceeded. You can only buy ${maxPerUser - userTicketCount} more ticket(s).`
+        message: `Limit exceeded. You can only book ${maxPerUser - userTicketCount} more ticket(s).`
       });
       return;
     }
 
-    // 4. Global Game Capacity Check
-    // We only count tickets that are effectively "taking up a seat" (Active or Pending)
-    const activeTicketsCount = await Ticket.countDocuments({
+    // 4. Verify all selected tickets are available
+    const availableTickets = await Ticket.find({
       gameId,
-      status: { $in: ['active', 'pending'] }
+      ticketNumber: { $in: ticketNumbers },
+      status: 'available'
     });
 
-    // Assuming game.maxPlayers defines the total ticket capacity for the room
-    const maxCapacity = game.maxPlayers || 100;
-
-    if (activeTicketsCount + quantity > maxCapacity) {
+    if (availableTickets.length !== ticketNumbers.length) {
+      const foundNumbers = availableTickets.map(t => t.ticketNumber);
+      const unavailable = ticketNumbers.filter((n: number) => !foundNumbers.includes(n));
       res.status(400).json({
         success: false,
-        message: "Game is full. Not enough tickets available."
+        message: `Tickets ${unavailable.join(', ')} are no longer available. Please select different tickets.`
       });
       return;
     }
 
-    // 5. Generate Tickets
+    // 5. Assign tickets to user
     const user = await User.findOne({ clerkId: userId });
     const userName = user?.name || "Player";
 
-    // Determine the next sequential ticketNumber for this game
-    const lastTicket = await Ticket.findOne({ gameId }).sort({ ticketNumber: -1 });
-    const nextTicketNumber = lastTicket ? lastTicket.ticketNumber + 1 : 1;
+    const ticketIds = availableTickets.map(t => t._id);
+    await Ticket.updateMany(
+      { _id: { $in: ticketIds } },
+      {
+        $set: {
+          userId,
+          userName,
+          status: 'pending', // Awaiting admin confirmation
+          purchasedAt: new Date()
+        }
+      }
+    );
 
-    const ticketsToCreate = [];
-    for (let i = 0; i < quantity; i++) {
-      ticketsToCreate.push({
-        gameId,
-        userId,
-        userName,
-        ticketNumber: nextTicketNumber + i,
-        numbers: generateTicketMatrix(), // Generates standard 3x9 Tambola matrix
-        markedNumbers: [],
-        status: 'pending', // <--- PENDING ADMIN CONFIRMATION
-        purchasedAt: new Date()
-      });
-    }
-
-    const createdTickets = await Ticket.insertMany(ticketsToCreate);
+    // Fetch updated tickets to return
+    const updatedTickets = await Ticket.find({ _id: { $in: ticketIds } });
 
     // Notify Admins
-    getIO().emit('admin:tickets-updated');
+    try {
+      getIO().emit('admin:tickets-updated');
+    } catch (_) { /* ignore */ }
 
-    // Update current players count in Game model (optional, but good for UI)
+    // Update current players count
     await Game.findByIdAndUpdate(gameId, {
-      $inc: { currentPlayers: quantity } // Roughly tracking tickets as players
+      $inc: { currentPlayers: ticketNumbers.length }
     });
 
     res.status(201).json({
       success: true,
-      data: createdTickets,
-      message: "Tickets booked successfully! Waiting for Admin confirmation."
+      data: updatedTickets,
+      message: `${ticketNumbers.length} ticket(s) booked successfully! Waiting for Admin confirmation.`
     });
 
   } catch (error) {
@@ -281,7 +311,9 @@ export const confirmTicket: RequestHandler = async (req, res): Promise<void> => 
     }
 
     // Notify specific user their ticket is ready
-    getIO().to(ticket.userId).emit('ticket:confirmed', { ticketId: ticket._id });
+    if (ticket.userId) {
+      getIO().to(ticket.userId).emit('ticket:confirmed', { ticketId: ticket._id });
+    }
 
     res.json({ success: true, data: ticket, message: "Ticket confirmed and activated" });
   } catch (error) {
@@ -294,21 +326,30 @@ export const cancelTicket: RequestHandler = async (req, res): Promise<void> => {
   try {
     const { ticketId } = req.params;
 
-    const ticket = await Ticket.findByIdAndUpdate(
-      ticketId,
-      { status: 'cancelled' },
-      { new: true }
-    );
-
+    const ticket = await Ticket.findById(ticketId);
     if (!ticket) {
       res.status(404).json({ success: false, message: "Ticket not found" });
       return;
     }
 
-    // Optional: Decrement player count in Game if needed
-    // await Game.findByIdAndUpdate(ticket.gameId, { $inc: { currentPlayers: -1 } });
+    // Reset ticket to available — clear user assignment, regenerate numbers
+    ticket.status = 'available';
+    ticket.userId = undefined as any;
+    ticket.userName = undefined as any;
+    ticket.markedNumbers = [];
+    ticket.numbers = generateTicketMatrix(); // Fresh matrix
+    ticket.winnerInfo = undefined;
+    await ticket.save();
 
-    res.json({ success: true, data: ticket, message: "Ticket cancelled" });
+    // Decrement player count
+    await Game.findByIdAndUpdate(ticket.gameId, { $inc: { currentPlayers: -1 } });
+
+    // Notify clients
+    try {
+      getIO().emit('admin:tickets-updated');
+    } catch (_) { /* ignore */ }
+
+    res.json({ success: true, data: ticket, message: "Ticket cancelled and made available for rebooking" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error cancelling ticket" });
   }

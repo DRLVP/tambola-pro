@@ -8,6 +8,7 @@ const router = Router();
 // User routes
 router.post("/purchase", requireAuth(), TicketController.purchaseTicket);
 router.get("/my", requireAuth(), TicketController.getMyTickets);
+router.get("/available/:gameId", requireAuth(), TicketController.getAvailableTickets);
 
 // Admin routes
 router.get("/", requireAuth(), requireRole(['admin', 'super_admin']), TicketController.getAllTickets);
