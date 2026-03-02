@@ -240,6 +240,21 @@ export const purchaseTicket: RequestHandler = async (req, res): Promise<void> =>
       return;
     }
 
+    // Checking if user is banned
+    const purchaser = await User.findOne({ clerkId: userId });
+    if (!purchaser) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    if (purchaser.isBanned) {
+      res.status(403).json({
+        success: false,
+        message: "Your account has been banned. You cannot purchase tickets."
+      });
+      return;
+    }
+
     // 3. User Ticket Limit Check
     const maxPerUser = game.settings?.maxTicketsPerUser || 6;
     const userTicketCount = await Ticket.countDocuments({

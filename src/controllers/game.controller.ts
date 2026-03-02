@@ -91,12 +91,20 @@ export const getGames = async (req: Request, res: Response) => {
     const { status, page = 1, limit = 10 } = req.query;
     const query = status ? { status } : {};
 
-    const games = await Game.find(query)
+    const gamesRaw = await Game.find(query)
       .sort({ createdAt: -1 })
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit));
 
     const total = await Game.countDocuments(query);
+
+    const games = await Promise.all(gamesRaw.map(async (g) => {
+      const soldTickets = await Ticket.countDocuments({ gameId: g._id, status: { $in: ['confirmed', 'active', 'won', 'lost'] } });
+      return {
+        ...g.toObject(),
+        soldTickets
+      };
+    }));
 
     res.json({
       success: true,

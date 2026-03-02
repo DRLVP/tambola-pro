@@ -15,11 +15,36 @@ export const getUsers: RequestHandler = async (req, res): Promise<void> => {
 
     const query = { role: 'user' };
 
-    const users = await User.find(query)
+    const usersRaw = await User.find(query)
       .select('-clerkId -createdAt -updatedAt -__v') // Exclude sensitive/internal fields
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
+
+    const users = await Promise.all(usersRaw.map(async (u) => {
+      // Get unique games played by user
+      const playedTickets = await Ticket.distinct('gameId', { userId: u.clerkId });
+      const gamesPlayedCount = playedTickets.length;
+
+      // Get games won by user
+      const wonGames = await Game.find({ 'winners.userId': u.clerkId });
+      const gamesWonCount = wonGames.length;
+
+      // Calculate total winnings
+      const winningsAggr = await Game.aggregate([
+        { $unwind: '$winners' },
+        { $match: { 'winners.userId': u.clerkId } },
+        { $group: { _id: null, total: { $sum: '$winners.prizeAmount' } } }
+      ]);
+      const totalWinningsCalc = winningsAggr[0]?.total || 0;
+
+      return {
+        ...u.toObject(),
+        gamesPlayed: gamesPlayedCount,
+        gamesWon: gamesWonCount,
+        totalWinnings: totalWinningsCalc
+      };
+    }));
 
     const total = await User.countDocuments(query);
 

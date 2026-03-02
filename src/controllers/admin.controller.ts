@@ -52,10 +52,18 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     const stats = revenueStats[0] || { totalRevenue: 0, todayRevenue: 0 };
 
     // 3. Recent Games
-    const recentGames = await Game.find()
+    const recentGamesRaw = await Game.find()
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('name status startedAt ticketPrice maxPlayers currentPlayers');
+      .select('name status startedAt createdAt ticketPrice maxPlayers currentPlayers winners settings');
+
+    const recentGames = await Promise.all(recentGamesRaw.map(async (g) => {
+      const soldTickets = await Ticket.countDocuments({ gameId: g._id, status: { $in: ['confirmed', 'active', 'won', 'lost'] } });
+      return {
+        ...g.toObject(),
+        soldTickets
+      };
+    }));
 
     // 4. Top Winners
     const topWinners = await User.find({ role: 'user' })
