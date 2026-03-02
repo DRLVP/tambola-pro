@@ -167,12 +167,12 @@ export const getAvailableTickets: RequestHandler = async (req, res): Promise<voi
       return;
     }
 
-    // Return tickets with status 'available' (no user assigned)
-    const tickets = await Ticket.find({ gameId, status: 'available' })
-      .select('ticketNumber status')
+    // Return full ticket objects for available tickets (includes numbers matrix for preview)
+    const availableTickets = await Ticket.find({ gameId, status: 'available' })
+      .select('ticketNumber status numbers')
       .sort({ ticketNumber: 1 });
 
-    // Also return booked ticket numbers so UI can show which are taken
+    // Return booked ticket numbers so UI can show which are taken
     const bookedTickets = await Ticket.find({
       gameId,
       status: { $in: ['pending', 'confirmed', 'active'] }
@@ -181,7 +181,10 @@ export const getAvailableTickets: RequestHandler = async (req, res): Promise<voi
     res.json({
       success: true,
       data: {
-        available: tickets.map(t => t.ticketNumber),
+        available: availableTickets.map(t => ({
+          ticketNumber: t.ticketNumber,
+          numbers: (t as any).numbers,
+        })),
         booked: bookedTickets.map(t => t.ticketNumber),
         total: game.settings?.maxTickets || game.maxPlayers || 100
       }
