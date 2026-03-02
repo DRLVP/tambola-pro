@@ -16,9 +16,8 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     const totalGames = await Game.countDocuments();
     const activeGames = await Game.countDocuments({ status: 'active' });
 
-    // 2. Revenue Calculation (only count sold tickets — those with a userId)
+    // 2. Revenue Calculation (Aggregate Tickets joined with Games)
     const revenueStats = await Ticket.aggregate([
-      { $match: { userId: { $ne: null } } },
       {
         $lookup: {
           from: 'games',
@@ -52,32 +51,11 @@ export const getDashboardStats = async (req: Request, res: Response) => {
 
     const stats = revenueStats[0] || { totalRevenue: 0, todayRevenue: 0 };
 
-    // 3. Recent Games — include createdAt, winners, and compute soldTickets
-    const recentGamesRaw = await Game.find()
+    // 3. Recent Games
+    const recentGames = await Game.find()
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('name status startedAt ticketPrice maxPlayers createdAt winners settings');
-
-    // Count sold tickets per game
-    const gameIds = recentGamesRaw.map(g => g._id);
-    const soldTicketCounts = await Ticket.aggregate([
-      { $match: { gameId: { $in: gameIds }, userId: { $ne: null } } },
-      { $group: { _id: '$gameId', count: { $sum: 1 } } }
-    ]);
-
-    const soldMap = new Map<string, number>();
-    soldTicketCounts.forEach((item: any) => {
-      soldMap.set(item._id.toString(), item.count);
-    });
-
-    const recentGames = recentGamesRaw.map(game => {
-      const g = game.toObject();
-      return {
-        ...g,
-        soldTickets: soldMap.get(g._id.toString()) || 0,
-        winnerName: g.winners && g.winners.length > 0 ? g.winners[0].userName : null,
-      };
-    });
+      .select('name status startedAt ticketPrice maxPlayers currentPlayers');
 
     // 4. Top Winners
     const topWinners = await User.find({ role: 'user' })

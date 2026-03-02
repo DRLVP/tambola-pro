@@ -219,16 +219,6 @@ export const purchaseTicket: RequestHandler = async (req, res): Promise<void> =>
     const { gameId, ticketNumbers } = req.body;
     const userId = req.auth().userId;
 
-    // 0. Check if user is banned
-    const currentUser = await User.findOne({ clerkId: userId });
-    if (currentUser?.isBanned) {
-      res.status(403).json({
-        success: false,
-        message: "Your account has been banned. You cannot join any games."
-      });
-      return;
-    }
-
     // 1. Validate input
     if (!ticketNumbers || !Array.isArray(ticketNumbers) || ticketNumbers.length === 0) {
       res.status(400).json({ success: false, message: "Please select at least one ticket" });
