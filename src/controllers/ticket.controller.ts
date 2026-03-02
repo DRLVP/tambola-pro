@@ -156,6 +156,25 @@ export const getGameTickets: RequestHandler = async (req, res): Promise<void> =>
   }
 };
 
+// GET /api/tickets/public/:gameId — public view of all booked tickets for transparency
+export const getPublicGameTickets: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const { gameId } = req.params;
+
+    // Only return booked tickets (not available ones, no private data)
+    const tickets = await Ticket.find({
+      gameId,
+      status: { $ne: 'available' }
+    })
+      .select('ticketNumber userName status numbers markedNumbers')
+      .sort({ ticketNumber: 1 });
+
+    res.json({ success: true, data: tickets });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching public game tickets" });
+  }
+};
+
 // GET /api/tickets/available/:gameId — returns unbooked tickets for a game (public)
 export const getAvailableTickets: RequestHandler = async (req, res): Promise<void> => {
   try {
