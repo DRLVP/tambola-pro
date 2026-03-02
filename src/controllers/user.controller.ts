@@ -16,16 +16,59 @@ export const getUsers: RequestHandler = async (req, res): Promise<void> => {
     const query = { role: 'user' };
 
     const users = await User.find(query)
-      .select('-clerkId -createdAt -updatedAt -__v') // Exclude sensitive/internal fields
+      .select('-clerkId -__v') // Keep createdAt for joined date
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
     const total = await User.countDocuments(query);
 
+    // Compute real gamesPlayed and gamesWon from Ticket/Game collections
+    const userClerkIds = users.map(u => u.clerkId).filter(Boolean);
+    // Note: clerkId is excluded from select, so we need _id-based approach
+    const userIds = users.map(u => u._id);
+
+    // Get real stats from tickets — count distinct gameIds per user (by clerkId)
+    // We need clerkId for ticket lookups, so fetch them separately
+    const userClerkMap = await User.find({ _id: { $in: userIds } }).select('_id clerkId').lean();
+    const idToClerk = new Map<string, string>();
+    userClerkMap.forEach((u: any) => { idToClerk.set(u._id.toString(), u.clerkId); });
+
+    const clerkIds = Array.from(idToClerk.values());
+
+    // Aggregate real gamesPlayed (distinct games with purchased tickets)
+    const gamesPlayedAgg = await Ticket.aggregate([
+      { $match: { userId: { $in: clerkIds } } },
+      { $group: { _id: { userId: '$userId', gameId: '$gameId' } } },
+      { $group: { _id: '$_id.userId', count: { $sum: 1 } } }
+    ]);
+    const gamesPlayedMap = new Map<string, number>();
+    gamesPlayedAgg.forEach((item: any) => { gamesPlayedMap.set(item._id, item.count); });
+
+    // Aggregate real gamesWon (from Game.winners array)
+    const gamesWonAgg = await Game.aggregate([
+      { $unwind: '$winners' },
+      { $match: { 'winners.userId': { $in: clerkIds } } },
+      { $group: { _id: '$winners.userId', count: { $sum: 1 } } }
+    ]);
+    const gamesWonMap = new Map<string, number>();
+    gamesWonAgg.forEach((item: any) => { gamesWonMap.set(item._id, item.count); });
+
+    // Map users with computed fields
+    const enrichedUsers = users.map(user => {
+      const u = user.toObject();
+      const clerkId = idToClerk.get(u._id.toString()) || '';
+      return {
+        ...u,
+        gamesPlayed: gamesPlayedMap.get(clerkId) || 0,
+        gamesWon: gamesWonMap.get(clerkId) || 0,
+        status: u.isBanned ? 'banned' : 'active',
+      };
+    });
+
     res.json({
       success: true,
-      data: users,
+      data: enrichedUsers,
       pagination: {
         page,
         limit,
@@ -34,6 +77,7 @@ export const getUsers: RequestHandler = async (req, res): Promise<void> => {
       }
     });
   } catch (error) {
+    console.error('Failed to fetch users:', error);
     res.status(500).json({ success: false, message: "Failed to fetch users" });
   }
 };

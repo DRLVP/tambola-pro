@@ -98,9 +98,30 @@ export const getGames = async (req: Request, res: Response) => {
 
     const total = await Game.countDocuments(query);
 
+    // Compute sold tickets per game
+    const gameIds = games.map(g => g._id);
+    const soldTicketCounts = await Ticket.aggregate([
+      { $match: { gameId: { $in: gameIds }, userId: { $ne: null } } },
+      { $group: { _id: '$gameId', count: { $sum: 1 } } }
+    ]);
+
+    const soldMap = new Map<string, number>();
+    soldTicketCounts.forEach((item: any) => {
+      soldMap.set(item._id.toString(), item.count);
+    });
+
+    const enrichedGames = games.map(game => {
+      const g = game.toObject();
+      return {
+        ...g,
+        soldTickets: soldMap.get(g._id.toString()) || 0,
+        winnerName: g.winners && g.winners.length > 0 ? g.winners[0].userName : null,
+      };
+    });
+
     res.json({
       success: true,
-      data: games,
+      data: enrichedGames,
       pagination: {
         page: Number(page),
         limit: Number(limit),
